@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>HELP.IO - OCR for Image & PDF</title>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2/dist/tesseract.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+  <style>
+    body {
+      font-family: "Times New Roman", serif;
+      background: #eef6f9;
+      padding: 30px;
+      color: #333;
+    }
+    .container {
+      max-width: 800px;
+      margin: auto;
+      background: #fff;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    h1, h2 {
+      text-align: center;
+      color: #0277bd;
+    }
+    input, button {
+      display: block;
+      width: 100%;
+      margin: 10px 0;
+      padding: 10px;
+      font-size: 16px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      font-family: "Times New Roman", serif;
+    }
+    button {
+      background-color: #0288d1;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0277bd;
+    }
+    textarea {
+      width: 100%;
+      height: 280px;
+      padding: 12px;
+      font-size: 16px;
+      font-family: "Times New Roman", serif;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      background-color: #f9f9f9;
+      margin-top: 10px;
+    }
+    .hidden {
+      display: none;
+    }
+    canvas {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="loginForm">
+    <h1>HELP.IO</h1>
+    <h2>Login</h2>
+    <input type="text" id="loginUsername" placeholder="Username" />
+    <input type="password" id="loginPassword" placeholder="Password" />
+    <button onclick="login()">Login</button>
+    <p>Don't have an account? <a href="#" onclick="toggleForms('signup')">Sign up</a></p>
+  </div>
+
+  <div class="container hidden" id="signupForm">
+    <h1>HELP.IO</h1>
+    <h2>Signup</h2>
+    <input type="text" id="signupUsername" placeholder="Choose a Username" />
+    <input type="password" id="signupPassword" placeholder="Choose a Password" />
+    <button onclick="signup()">Create Account</button>
+    <p>Already have an account? <a href="#" onclick="toggleForms('login')">Login</a></p>
+  </div>
+
+  <div class="container hidden" id="ocrApp">
+    <h1>HELP.IO - OCR for Image & PDF</h1>
+    <input type="file" id="fileInput" accept="image/*,.pdf" />
+    <button onclick="handleFile()">Extract Text</button>
+
+    <h2>Extracted Text</h2>
+    <textarea id="outputText" readonly placeholder="Text will appear here..."></textarea>
+    <button onclick="downloadText()">Download Text</button>
+    <canvas id="pdfCanvas"></canvas>
+  </div>
+
+  <script>
+    const users = {};
+
+    function toggleForms(form) {
+      document.getElementById('loginForm').classList.add('hidden');
+      document.getElementById('signupForm').classList.add('hidden');
+      if (form === 'login') {
+        document.getElementById('loginForm').classList.remove('hidden');
+      } else {
+        document.getElementById('signupForm').classList.remove('hidden');
+      }
+    }
+
+    function signup() {
+      const username = document.getElementById('signupUsername').value;
+      const password = document.getElementById('signupPassword').value;
+      if (username && password) {
+        if (users[username]) {
+          alert("Username already exists.");
+        } else {
+          users[username] = password;
+          alert("Account created! Please log in.");
+          toggleForms('login');
+        }
+      } else {
+        alert("Please fill in all fields.");
+      }
+    }
+
+    function login() {
+      const username = document.getElementById('loginUsername').value;
+      const password = document.getElementById('loginPassword').value;
+      if (users[username] && users[username] === password) {
+        document.getElementById('loginForm').classList.add('hidden');
+        document.getElementById('ocrApp').classList.remove('hidden');
+      } else {
+        alert("Invalid credentials or account doesn't exist.");
+      }
+    }
+
+    async function handleFile() {
+      const fileInput = document.getElementById('fileInput');
+      const output = document.getElementById('outputText');
+      const file = fileInput.files[0];
+
+      if (!file) {
+        alert("Please select a file.");
+        return;
+      }
+
+      output.value = "Processing...";
+
+      if (file.type === "application/pdf") {
+        const fileReader = new FileReader();
+        fileReader.onload = async function () {
+          const typedarray = new Uint8Array(this.result);
+          const pdf = await pdfjsLib.getDocument(typedarray).promise;
+          const page = await pdf.getPage(1);
+
+          const scale = 2;
+          const viewport = page.getViewport({ scale });
+          const canvas = document.getElementById('pdfCanvas');
+          const context = canvas.getContext('2d');
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+
+          await page.render({ canvasContext: context, viewport }).promise;
+
+          const dataUrl = canvas.toDataURL();
+          await extractTextFromImage(dataUrl);
+        };
+        fileReader.readAsArrayBuffer(file);
+      } else if (file.type.startsWith("image/")) {
+        const imageUrl = URL.createObjectURL(file);
+        await extractTextFromImage(imageUrl);
+      } else {
+        output.value = "Unsupported file type.";
+      }
+    }
+
+    async function extractTextFromImage(imageSrc) {
+      const output = document.getElementById('outputText');
+      try {
+        const result = await Tesseract.recognize(imageSrc, 'eng', {
+          logger: m => console.log(m)
+        });
+        output.value = result.data.text.trim();
+      } catch (err) {
+        output.value = "Error: " + err.message;
+      }
+    }
+
+    function downloadText() {
+      const text = document.getElementById('outputText').value;
+      if (!text.trim()) {
+        alert("No text to download!");
+        return;
+      }
+
+      const blob = new Blob([text], { type: 'text/plain' });
+      const link = document.createElement('a');
+      link.download = "ocr_output.txt";
+      link.href = window.URL.createObjectURL(blob);
+      link.click();
+    }
+  </script>
+</body>
+</html>
